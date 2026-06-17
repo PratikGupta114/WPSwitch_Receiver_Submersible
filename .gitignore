@@ -1,0 +1,15 @@
+# PlatformIO
+SwitchingUnit/.pio/
+SwitchingUnit/.vscode/
+
+# ESP-IDF
+ControlUnit/build/
+ControlUnit/sdkconfig.old
+
+# Host tests/temp files
+SwitchingUnit/test_comms_hlw*
+SwitchingUnit/test_comms_hlw_disabled*
+
+# General
+.DS_Store
+*.swp
