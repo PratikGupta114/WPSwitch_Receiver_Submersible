@@ -4,6 +4,7 @@ SwitchingUnit/.vscode/
 
 # ESP-IDF
 ControlUnit/build/
+ControlUnit/managed_components/
 ControlUnit/sdkconfig.old
 
 # Host tests/temp files
