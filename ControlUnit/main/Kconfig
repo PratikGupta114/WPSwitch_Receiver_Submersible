@@ -1,0 +1,693 @@
+menu "WPSwitch Receiver Configuration"
+
+    choice BOARD_VARIANT
+        prompt "Board Variant"
+        default BOARD_VARIANT_PROTOTYPE
+        help
+            Select the hardware revision of the receiver board.
+
+        config BOARD_VARIANT_PROTOTYPE
+            bool "Prototype Edition"
+        config BOARD_VARIANT_REV1
+            bool "Revision 1 (Production)"
+    endchoice
+
+    menu "GPIO Pin Configuration"
+        
+        menu "Relay Control Pins"
+            config MOTOR_RELAY_SET_PIN
+                int "Motor Relay Set Pin"
+                range 0 39
+                default 26
+                help
+                    GPIO pin number for setting the motor relay to ON state.
+                    
+            config MOTOR_RELAY_RESET_PIN
+                int "Motor Relay Reset Pin"
+                range 0 39
+                default 25
+                help
+                    GPIO pin number for resetting the motor relay to OFF state.
+                    
+            config MOTOR_RELAY_STATE_INPUT_PIN
+                int "Motor Relay State Input Pin"
+                range 0 39
+                default 13
+                help
+                    GPIO pin number for reading the current state of the motor relay.
+
+            config LINE_FEEDBACK_PIN
+                int "Line Feedback Input Pin"
+                depends on BOARD_VARIANT_REV1
+                range 0 39
+                default 35
+                help
+                    GPIO pin number for line feedback monitoring.
+                    Note: GPIO35 is input-only on ESP32.
+        endmenu
+        
+        menu "Button and LED Pins"
+            config MOTOR_TOGGLE_BUTTON_INPUT_PIN
+                int "Motor Toggle Button Input Pin"
+                range 0 39
+                default 21
+                help
+                    GPIO pin number for the motor toggle button input.
+                    
+            config MOTOR_TOGGLE_BUTTON_LED_OUTPUT_PIN
+                int "Motor Toggle Button LED Output Pin"
+                range 0 39
+                default 19
+                help
+                    GPIO pin number for the motor toggle button LED indicator.
+                    
+            config NEOPIXEL_DATA_OUTPUT_PIN
+                int "NeoPixel Data Output Pin"
+                range 0 39
+                default 23
+                help
+                    GPIO pin number for NeoPixel LED strip data output.
+                    
+            config LED_BUILTIN
+                int "Built-in LED Pin"
+                range 0 39
+                default 2
+                help
+                    GPIO pin number for the built-in LED.
+                    
+            config CONFIG_MODE_BUTTON_INPUT
+                int "Configuration Mode Button Input Pin"
+                range 32 39
+                default 34
+                help
+                    GPIO pin number for the configuration mode button.
+                    Note: GPIO34 is input-only on ESP32.
+                    
+            config BUZZER_OUTPUT_PIN
+                int "Buzzer Output Pin"
+                range 0 39
+                default 33
+                help
+                    GPIO pin number for the buzzer.
+                    Note: GPIO33 is input-only on ESP32, this is a known issue in the Prototype.
+        endmenu
+        
+        menu "Display Pins"
+            config CLOCK_PIN
+                int "Display Clock Pin"
+                range 0 39
+                default 5
+                help
+                    GPIO pin number for the display clock signal.
+                    
+            config LATCH_PIN
+                int "Display Latch Pin"
+                range 0 39
+                default 22
+                help
+                    GPIO pin number for the display latch signal.
+                    
+            config DATA_PIN
+                int "Display Data Pin"
+                range 0 39
+                default 18
+                help
+                    GPIO pin number for the display data signal.
+        endmenu
+        
+        menu "Wireless Communication Pins"
+            config WIRELESS_DATA_RX_PIN
+                int "Wireless Data RX Pin"
+                range 0 39
+                default 16
+                help
+                    GPIO pin number for wireless module data reception.
+                    
+            config WIRELESS_DATA_TX_PIN
+                int "Wireless Data TX Pin"
+                range 0 39
+                default 17
+                help
+                    GPIO pin number for wireless module data transmission.
+                    
+            config WIRELESS_PRG_MODE_PIN
+                int "Wireless Programming Mode Pin"
+                range 0 39
+                default 4
+                help
+                    GPIO pin number for wireless module programming mode control.
+        endmenu
+        
+        menu "UART Pins"
+            config HC_05_TX_PIN
+                int "HC-05 TX Pin"
+                range 0 39
+                default 1
+                help
+                    GPIO pin number for HC-05 Bluetooth module TX.
+                    
+            config HC_05_RX_PIN
+                int "HC-05 RX Pin"
+                range 0 39
+                default 3
+                help
+                    GPIO pin number for HC-05 Bluetooth module RX.
+        endmenu
+        
+        menu "I2C Pins"
+            config DS1307_SDA_PIN
+                int "DS1307 RTC SDA Pin"
+                range 0 39
+                default 32
+                help
+                    GPIO pin number for DS1307 RTC I2C SDA line.
+                    
+            config DS1307_SCL_PIN
+                int "DS1307 RTC SCL Pin"
+                range 0 39
+                default 27
+                help
+                    GPIO pin number for DS1307 RTC I2C SCL line.
+        endmenu    
+    endmenu
+
+    menu "UART Configuration"
+        config UART_PORT_FOR_RECEIVER
+            int "UART Port Number for Receiver"
+            range 0 2
+            default 2
+            help
+                UART port number used for receiver communication.
+                ESP32 has UART0, UART1, and UART2 available.
+                
+        config RECEIVER_PORT_UART_BAUD_RATE
+            int "Receiver Port UART Baud Rate"
+            default 9600
+            help
+                Baud rate for UART communication with the receiver module.
+                Common values: 9600, 19200, 38400, 57600, 115200
+                
+        config UART_BUFFER_SIZE
+            int "UART Buffer Size"
+            range 256 4096
+            default 1024
+            help
+                Size of the UART receive/transmit buffer in bytes.
+                
+        config UART_DATA_RECEPTION_TIMEOUT_SEC
+            int "UART Data Reception Timeout (seconds)"
+            range 1 300
+            default 10
+            help
+                Timeout in seconds for UART data reception.
+                After this timeout, a data reception timeout event will be triggered.
+    endmenu
+
+    menu "Sensor Configuration"
+        config MIN_HUMIDITY_LEVEL
+            int "Minimum Humidity Level"
+            range 0 100
+            default 15
+            help
+                Minimum acceptable humidity level in percentage.
+                
+        config MAX_HUMIDITY_LEVEL
+            int "Maximum Humidity Level"
+            range 0 100
+            default 85
+            help
+                Maximum acceptable humidity level in percentage.
+                
+        config MIN_TEMPERATURE_LEVEL
+            int "Minimum Temperature Level"
+            range -40 85
+            default 0
+            help
+                Minimum acceptable temperature level in Celsius.
+                
+        config MAX_TEMPERATURE_LEVEL
+            int "Maximum Temperature Level"
+            range -40 85
+            default 55
+            help
+                Maximum acceptable temperature level in Celsius.
+                
+        config MIN_WATER_LEVEL
+            int "Minimum Water Level"
+            range 0 100
+            default 0
+            help
+                Minimum water level in percentage.
+                
+        config MAX_WATER_LEVEL
+            int "Maximum Water Level"
+            range 0 100
+            default 100
+            help
+                Maximum water level in percentage.
+    endmenu
+
+    menu "MQTT Configuration"
+        config MQTT_BROKER_URL
+            string "MQTT Broker URL (Production)"
+            default "mqtts://k01b8b84.ala.asia-southeast1.emqxsl.com"
+            help
+                URL of the MQTT broker to connect to for production.
+                Use mqtts:// for TLS secured connections or mqtt:// for unsecured.
+                
+        config MQTT_BROKER_PORT
+            int "MQTT Broker Port (Production)"
+            range 1 65535
+            default 8883
+            help
+                Port number for MQTT broker connection for production.
+                Common values: 8883 (TLS), 1883 (unsecured), 8084 (WebSocket with TLS)
+                
+        config MQTT_BROKER_URL_DEV
+            string "MQTT Broker URL (Development)"
+            default "mqtt://192.168.1.107:1883"
+            help
+                URL of the MQTT broker to connect to for development.
+                Use mqtts:// for TLS secured connections or mqtt:// for unsecured.
+                
+        config MQTT_BROKER_PORT_DEV
+            int "MQTT Broker Port (Development)"
+            range 1 65535
+            default 1883
+            help
+                Port number for MQTT broker connection for development.
+                Common values: 8883 (TLS), 1883 (unsecured), 8084 (WebSocket with TLS)
+                
+
+                
+        config MQTT_KEEP_ALIVE_INTERVAL_SECONDS
+            int "MQTT Keep Alive Interval (seconds)"
+            range 1 300
+            default 30
+            help
+                Keep alive interval for MQTT connection in seconds.
+                
+        config MQTT_RECONNECT_TIMER_PERIOD_MS
+            int "MQTT Reconnect Timer Period (milliseconds)"
+            range 1000 60000
+            default 10000
+            help
+                Period for MQTT reconnection attempts in milliseconds.
+                
+        config MQTT_NETWORK_TIMEOUT_MS
+            int "MQTT Network Operation Timeout (milliseconds)"
+            range 10000 120000
+            default 30000
+            help
+                Timeout for MQTT network operations including TLS handshake.
+                Increase this value for unreliable internet connections.
+                Default ESP-IDF value is 10000ms which is too short for
+                TLS connections over the internet. Recommended: 30000ms.
+                
+        config MQTT_MAX_TOPIC_LENGTH
+            int "Maximum MQTT Topic Length"
+            range 20 100
+            default 45
+            help
+                Maximum allowed length for MQTT topic strings.
+                
+        config MQTT_SESSION_EXPIRY_INTERVAL
+            int "MQTT Session Expiry Interval"
+            range 1 3600
+            default 10
+            help
+                MQTT 5 session expiry interval in seconds.
+                
+        config MQTT_MAXIMUM_PACKET_SIZE
+            int "MQTT Maximum Packet Size"
+            range 256 8192
+            default 1024
+            help
+                Maximum MQTT packet size in bytes.
+                
+        config MQTT_MESSAGE_EXPIRY_INTERVAL
+            int "MQTT Message Expiry Interval"
+            range 1 300
+            default 10
+            help
+                MQTT 5 message expiry interval in seconds.
+                
+        config MQTT_WILL_DELAY_INTERVAL
+            int "MQTT Will Delay Interval"
+            range 1 300
+            default 10
+            help
+                MQTT 5 will delay interval in seconds.
+                
+        config MQTT_INPUT_BUFFER_SIZE
+            int "MQTT Input Buffer Size"
+            range 512 8192
+            default 2048
+            help
+                Size of MQTT input buffer in bytes.
+                
+        config MQTT_OUTPUT_BUFFER_SIZE
+            int "MQTT Output Buffer Size"
+            range 512 8192
+            default 2048
+            help
+                Size of MQTT output buffer in bytes.
+                
+        config MQTT_MESSAGE_RETRANSMISSION_PERIOD
+            int "MQTT Message Retransmission Period (milliseconds)"
+            range 1000 30000
+            default 5000
+            help
+                Period for MQTT message retransmission in milliseconds.
+                
+        config MQTT_TASK_STACK_DEPTH
+            int "MQTT Task Stack Depth"
+            range 4096 16384
+            default 8192
+            help
+                Stack depth for MQTT task in bytes.
+                
+        config WPSWITCH_MQTT_TASK_PRIORITY
+            int "MQTT Task Priority"
+            range 1 25
+            default 12
+            help
+                Priority level for MQTT task.
+    endmenu
+
+    menu "OTA Update Configuration"
+        config OTA_VERSION_CHECK_URL
+            string "OTA Version Check API URL (Production)"
+            default "https://us-central1-water-level-analyzer.cloudfunctions.net/ota/firmwareData/latest"
+            help
+                URL for checking the latest firmware version in production.
+                
+        config OTA_FIRMWARE_DOWNLOAD_URL
+            string "OTA Firmware Download URL (Production)"
+            default "https://us-central1-water-level-analyzer.cloudfunctions.net/ota/firmware.bin"
+            help
+                URL for downloading the firmware binary in production.
+                
+        config OTA_VERSION_CHECK_URL_DEV
+            string "OTA Version Check API URL (Development)"
+            default "http://192.168.0.171:5001/water-level-analyzer/us-central1/ota/firmwareData/latest"
+            help
+                URL for checking the latest firmware version in development.
+                
+        config OTA_FIRMWARE_DOWNLOAD_URL_DEV
+            string "OTA Firmware Download URL (Development)"
+            default "http://192.168.0.171:5001/water-level-analyzer/us-central1/ota/firmware.bin"
+            help
+                URL for downloading the firmware binary in development.
+                
+        config OTA_UPDATE_CHECK_INTERVAL_HOURS
+            int "OTA Update Check Interval (hours)"
+            range 1 24
+            default 4
+            help
+                Interval between automatic OTA update checks in hours.
+                
+        config OTA_RECV_TIMEOUT_MS
+            int "OTA Receive Timeout (milliseconds)"
+            range 1000 60000
+            default 30000
+            help
+                Timeout for OTA data reception in milliseconds.
+                Increased default to 30s for better reliability over unstable networks.
+                
+        config OTA_HTTP_BUFFER_SIZE
+            int "OTA HTTP Receive Buffer Size"
+            range 1024 8192
+            default 2048
+            help
+                Size of HTTP receive buffer for OTA downloads.
+                Larger buffers improve TLS performance but use more memory.
+                
+        config OTA_KEEPALIVE_IDLE_SEC
+            int "OTA TCP Keep-Alive Idle Time (seconds)"
+            range 1 60
+            default 5
+            help
+                Time in seconds before sending first TCP keep-alive probe.
+                
+        config OTA_KEEPALIVE_INTERVAL_SEC
+            int "OTA TCP Keep-Alive Interval (seconds)"
+            range 1 30
+            default 5
+            help
+                Interval in seconds between TCP keep-alive probes.
+                
+        config OTA_KEEPALIVE_COUNT
+            int "OTA TCP Keep-Alive Probe Count"
+            range 1 10
+            default 3
+            help
+                Number of failed keep-alive probes before connection is considered dead.
+                
+        config OTA_WRITE_DATA_BUFFER_LENGTH
+            int "OTA Write Data Buffer Length"
+            range 512 4096
+            default 1024
+            help
+                Size of buffer for OTA data writing in bytes.
+                
+        config OTA_TASK_STACK_DEPTH
+            int "OTA Task Stack Depth"
+            range 4096 16384
+            default 8192
+            help
+                Stack depth for OTA task in bytes.
+                
+        config OTA_TASK_PRIORITY
+            int "OTA Task Priority"
+            range 1 25
+            default 8
+            help
+                Priority level for OTA task.
+    endmenu
+
+    menu "Pump Controller Configuration"
+        config PUMP_MONITORING_TICK_PERIOD_MS
+            int "Pump Monitoring Tick Period (milliseconds)"
+            range 10000 300000
+            default 60000
+            help
+                Period for pump monitoring timer ticks in milliseconds.
+                
+        config PUMP_STALL_CHECK_INTERVAL_MS
+            int "Pump Stall Check Interval (milliseconds)"
+            range 5000 60000
+            default 10000
+            help
+                Interval for checking pump stall condition in milliseconds.
+                
+        config PUMP_DEFAULT_MANUAL_LOCKOUT_DURATION_MS
+            int "Default Manual Lockout Duration (milliseconds)"
+            range 300000 28800000
+            default 7200000
+            help
+                Default duration for manual pump lockout in milliseconds (2 hours default).
+                
+        config PUMP_MIN_WATER_LEVEL_TO_START
+            int "Minimum Water Level to Start Pump (%)"
+            range 0 100
+            default 15
+            help
+                Minimum water level percentage required to start the pump automatically.
+                
+        config PUMP_MAX_WATER_LEVEL_TO_STOP
+            int "Maximum Water Level to Stop Pump (%)"
+            range 0 100
+            default 85
+            help
+                Maximum water level percentage at which to stop the pump automatically.
+
+        config PUMP_IMMEDIATE_STALL_CHECK_INTERVAL_MS
+            int "Immediate Stall Check Interval (ms)"
+            range 5000 30000
+            default 15000
+            help
+                Interval for the fast 'no fill' trend check in milliseconds. This should be shorter than the main stall check.
+
+        config PUMP_STALL_GRACE_PERIOD_SEC
+            int "Stall Detection Grace Period (seconds)"
+            range 10 300
+            default 60
+            help
+                A grace period at the start of a pump cycle (if starting at 0% water level) where stall checks are paused to allow the water level to rise out of the sensor's dead zone.
+    endmenu
+
+    menu "WiFi Configuration"
+        menu "Access Point Settings"
+            
+            config WIFI_USE_DYNAMIC_CREDENTIALS
+                bool "Use Dynamic AP Credentials"
+                default y
+                help
+                    Enable dynamic generation of WiFi AP SSID and password based on device MAC address.
+                    When enabled, the AP will use a unique 30-character cryptic SSID and 32-character
+                    password generated using HKDF-SHA256. This provides better security and uniqueness
+                    per device. When disabled, static credentials from secrets.h will be used.
+                    
+            config WIFI_AP_CHANNEL
+                int "WiFi Access Point Channel"
+                range 1 13
+                default 1
+                help
+                    WiFi channel for the Access Point.
+                    
+            config WIFI_AP_SSID_HIDDEN
+                int "Hide Access Point SSID"
+                range 0 1
+                default 0
+                help
+                    Whether to make the AP visible to nearby devices.
+                    0 - visible, 1 - invisible
+                    
+            config WIFI_AP_MAX_CONNECTIONS
+                int "Maximum AP Connections"
+                range 1 10
+                default 1
+                help
+                    Maximum number of devices that can connect to this Access Point.
+                    
+            config WIFI_AP_BEACON_INTERVAL
+                int "AP Beacon Interval (milliseconds)"
+                range 100 1000
+                default 300
+                help
+                    Access Point beacon interval in milliseconds.
+                    100 recommended for normal operation.
+                    
+            config WIFI_AP_IP
+                string "Access Point IP Address"
+                default "192.168.4.1"
+                help
+                    Default IP Address for the Access Point.
+                    
+            config WIFI_AP_GATEWAY
+                string "Access Point Gateway"
+                default "192.168.4.1"
+                help
+                    Default Gateway (should be the same as the IP Address).
+                    
+            config WIFI_AP_NETMASK
+                string "Access Point Netmask"
+                default "255.255.255.0"
+                help
+                    Access Point network mask.
+        endmenu
+        
+        menu "Station Mode Settings"
+            config WIFI_MAX_CONNECTION_RETRIES
+                int "Maximum WiFi Connection Retries"
+                range 1 50
+                default 10
+                help
+                    Number of retry attempts on WiFi disconnect.
+                    
+            config WIFI_AP_CONNECT_RETRY_INTERVAL
+                int "WiFi Reconnect Interval (milliseconds)"
+                range 5000 300000
+                default 30000
+                help
+                    Retry interval in milliseconds for WiFi reconnection attempts.
+                    
+            config MAX_SSID_LENGTH
+                int "Maximum SSID Length"
+                range 1 32
+                default 32
+                help
+                    IEEE Standard maximum SSID length.
+                    
+            config MAX_PASSWORD_LENGTH
+                int "Maximum Password Length"
+                range 8 64
+                default 64
+                help
+                    IEEE Standard maximum password length.
+        endmenu
+        
+        menu "SNTP Time Synchronization"
+            config SNTP_TIME_UPDATE_INTERVAL_SEC
+                int "SNTP Time Update Interval (seconds)"
+                range 60 3600
+                default 300
+                help
+                    Interval for SNTP time synchronization in seconds.
+                    
+            config SNTP_TIME_ZONE
+                string "SNTP Time Zone"
+                default "IST-5:30"
+                help
+                    Time zone string for SNTP synchronization.
+                    
+            config SNTP_SERVER_NAME_0
+                string "Primary SNTP Server"
+                default "pool.ntp.org"
+                help
+                    Primary NTP server for time synchronization.
+                    
+            config SNTP_SERVER_NAME_1
+                string "Secondary SNTP Server"
+                default "in.pool.ntp.org"
+                help
+                    Secondary NTP server for time synchronization.
+                    
+            config SNTP_TIME_SYNC_TASK_STACK_DEPTH
+                int "SNTP Task Stack Depth"
+                range 2048 8192
+                default 2560
+                help
+                    Stack depth for SNTP time synchronization task.
+                    Optimized from 4096 to 2560 bytes based on measured high water marks.
+                    
+            config SNTP_TIME_SYNC_TASK_PRIORITY
+                int "SNTP Task Priority"
+                range 1 25
+                default 25
+                help
+                    Priority level for SNTP time synchronization task.
+                    
+            config SNTP_TIME_SYNC_INTERVAL
+                int "SNTP Sync Interval (milliseconds)"
+                range 60000 3600000
+                default 195000
+                help
+                    Interval between SNTP synchronization attempts in milliseconds.
+                    Default is 3 minutes 15 seconds (195000 ms).
+                    
+            config SNTP_TIME_SYNC_RETRY_INTERVAL
+                int "SNTP Sync Retry Interval (milliseconds)"
+                range 1000 30000
+                default 3000
+                help
+                    Interval between SNTP retry attempts in milliseconds.
+                    
+            config SNTP_SYNC_RETRY_COUNT
+                int "SNTP Sync Retry Count"
+                range 1 100
+                default 50
+                help
+                    Maximum number of SNTP synchronization retry attempts.
+        endmenu
+        
+        menu "WiFi Task Configuration"
+            config WIFI_RECONNECTION_TASK_STACK_DEPTH
+                int "WiFi Reconnection Task Stack Depth"
+                range 2048 8192
+                default 2560
+                help
+                    Stack depth for WiFi reconnection task.
+                    Optimized from 4096 to 2560 bytes based on measured high water marks.
+                    
+            config WIFI_RECONNECTION_TASK_PRIORITY
+                int "WiFi Reconnection Task Priority"
+                range 1 25
+                default 5
+                help
+                    Priority level for WiFi reconnection task.
+        endmenu
+    endmenu
+
+endmenu

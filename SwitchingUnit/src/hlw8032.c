@@ -151,3 +151,27 @@ const hlw8032_data_t *hlw8032_get_data(void)
 {
     return &hlw_data;
 }
+
+void calculate_energy_parameters(const hlw8032_data_t *edata, uint32_t *voltage_mv, uint32_t *current_ma, uint32_t *power_mw)
+{
+    if (!edata || !edata->valid) {
+        *voltage_mv = 0;
+        *current_ma = 0;
+        *power_mw = 0;
+        return;
+    }
+
+    uint32_t v_coeff = ((uint32_t)edata->voltage_reg[0] << 16) | ((uint32_t)edata->voltage_reg[1] << 8) | edata->voltage_reg[2];
+    uint32_t v_data  = ((uint32_t)edata->voltage_data[0] << 16) | ((uint32_t)edata->voltage_data[1] << 8) | edata->voltage_data[2];
+
+    uint32_t i_coeff = ((uint32_t)edata->current_reg[0] << 16) | ((uint32_t)edata->current_reg[1] << 8) | edata->current_reg[2];
+    uint32_t i_data  = ((uint32_t)edata->current_data[0] << 16) | ((uint32_t)edata->current_data[1] << 8) | edata->current_data[2];
+
+    uint32_t p_coeff = ((uint32_t)edata->power_reg[0] << 16) | ((uint32_t)edata->power_reg[1] << 8) | edata->power_reg[2];
+    uint32_t p_data  = ((uint32_t)edata->power_data[0] << 16) | ((uint32_t)edata->power_data[1] << 8) | edata->power_data[2];
+
+    *voltage_mv = (v_data == 0) ? 0 : (uint32_t)(((uint64_t)v_coeff * V_SCALE_FACTOR) / v_data);
+    *current_ma = (i_data == 0) ? 0 : (uint32_t)(((uint64_t)i_coeff * I_SCALE_FACTOR) / i_data);
+    *power_mw   = (p_data == 0) ? 0 : (uint32_t)(((uint64_t)p_coeff * P_SCALE_FACTOR) / p_data);
+}
+

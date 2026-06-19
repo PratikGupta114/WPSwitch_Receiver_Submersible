@@ -55,12 +55,31 @@ relay_result_t relay_pump_on(void) {
     if (mock_relay_state == RELAY_STATE_COOLDOWN) {
         return RELAY_ERR_COOLDOWN;
     }
+    if (mock_relay_state == RELAY_STATE_LOCKED) {
+        return RELAY_ERR_LOCKED;
+    }
     mock_relay_state = RELAY_STATE_STARTING;
     return RELAY_OK;
 }
 
 relay_result_t relay_pump_off(void) {
+    if (mock_relay_state == RELAY_STATE_LOCKED) {
+        return RELAY_ERR_LOCKED;
+    }
     mock_relay_state = RELAY_STATE_STOPPING;
+    return RELAY_OK;
+}
+
+relay_result_t relay_pump_lock(void) {
+    mock_relay_state = RELAY_STATE_LOCKED;
+    return RELAY_OK;
+}
+
+relay_result_t relay_pump_unlock(void) {
+    if (mock_relay_state != RELAY_STATE_LOCKED) {
+        return RELAY_ERR_ALREADY_OFF;
+    }
+    mock_relay_state = RELAY_STATE_IDLE;
     return RELAY_OK;
 }
 
@@ -81,6 +100,11 @@ uint8_t motor_is_running(void) {
 
 uint8_t presence_is_control_unit_present(void) {
     return mock_presence;
+}
+
+static uint32_t mock_presence_uart_ms = 0;
+void presence_record_uart_active(void) {
+    mock_presence_uart_ms = mock_ms;
 }
 
 /* Helper to feed bytes into hardware UART mock */
@@ -116,6 +140,8 @@ int main(void) {
     printf("[Test 1] Valid PING command... ");
     comm_protocol_init();
     reset_tx();
+    mock_presence_uart_ms = 999;
+    mock_ms = 456;
     
     /* Frame: SOF (0xAA) + Type (0x01) + ID (CMD_PING=0x05) + Len (0x00) + Checksum (0x01 ^ 0x05 ^ 0x00 = 0x04) */
     uint8_t ping_cmd[] = {0xAA, 0x01, 0x05, 0x00, 0x04};
@@ -130,6 +156,7 @@ int main(void) {
     assert(mock_hw_tx_data[3] == 0x01);
     assert(mock_hw_tx_data[4] == 0x00);
     assert(mock_hw_tx_data[5] == 0x06);
+    assert(mock_presence_uart_ms == 456);
     printf("PASSED\n");
 
     /* =======================================================================
@@ -138,6 +165,8 @@ int main(void) {
     printf("[Test 2] Corrupted PING checksum... ");
     comm_protocol_init();
     reset_tx();
+    mock_presence_uart_ms = 999;
+    mock_ms = 456;
     
     /* Frame with wrong checksum (0x05 instead of 0x04) */
     uint8_t bad_ping[] = {0xAA, 0x01, 0x05, 0x00, 0x05};
@@ -146,6 +175,7 @@ int main(void) {
     
     /* Verify NO response was sent */
     assert(mock_hw_tx_len == 0);
+    assert(mock_presence_uart_ms == 999);
     printf("PASSED\n");
 
     /* =======================================================================
@@ -352,25 +382,130 @@ int main(void) {
     feed_hw_uart(get_energy_req, sizeof(get_energy_req));
     comm_protocol_tick();
 
-    assert(mock_hw_tx_len == 18);
+    assert(mock_hw_tx_len == 17);
     assert(mock_hw_tx_data[0] == 0xAA);
     assert(mock_hw_tx_data[1] == 0x02);
     assert(mock_hw_tx_data[2] == REQ_GET_ENERGY);
-    assert(mock_hw_tx_data[3] == 0x0D);
-    assert(mock_hw_tx_data[4] == 0x01); // valid
-    assert(mock_hw_tx_data[5] == 0x11);
-    assert(mock_hw_tx_data[6] == 0x22);
-    assert(mock_hw_tx_data[7] == 0x33);
-    assert(mock_hw_tx_data[8] == 0x44);
-    assert(mock_hw_tx_data[9] == 0x55);
-    assert(mock_hw_tx_data[10] == 0x66);
+    assert(mock_hw_tx_data[3] == 0x0C);
+    
+    // Voltage in millivolts = 1886 = 0x0000075E
+    assert(mock_hw_tx_data[4] == 0x00);
+    assert(mock_hw_tx_data[5] == 0x00);
+    assert(mock_hw_tx_data[6] == 0x07);
+    assert(mock_hw_tx_data[7] == 0x5E);
+    
+    // Current in milliamps = 0 = 0x00000000
+    assert(mock_hw_tx_data[8] == 0x00);
+    assert(mock_hw_tx_data[9] == 0x00);
+    assert(mock_hw_tx_data[10] == 0x00);
     assert(mock_hw_tx_data[11] == 0x00);
-    assert(mock_hw_tx_data[17] == 0x7D);
+    
+    // Power in milliwatts = 0 = 0x00000000
+    assert(mock_hw_tx_data[12] == 0x00);
+    assert(mock_hw_tx_data[13] == 0x00);
+    assert(mock_hw_tx_data[14] == 0x00);
+    assert(mock_hw_tx_data[15] == 0x00);
+    
+    // Checksum = 0x02 ^ 0x04 ^ 0x0C ^ 0x07 ^ 0x5E = 0x53
+    assert(mock_hw_tx_data[16] == 0x53);
     printf("PASSED\n");
 #endif
 
+    /* =======================================================================
+     * Test Case 10: CMD_PUMP_LOCK
+     * =====================================================================*/
+    printf("[Test 10] CMD_PUMP_LOCK command... ");
+    comm_protocol_init();
+    reset_tx();
+    mock_relay_state = RELAY_STATE_IDLE;
+    mock_ms = 100;
+
+    /* Frame: SOF (0xAA) + Type (CMD=0x01) + ID (CMD_PUMP_LOCK=0x07) + Len (0x00) + Checksum (0x01 ^ 0x07 ^ 0x00 = 0x06) */
+    uint8_t lock_cmd[] = {0xAA, 0x01, CMD_PUMP_LOCK, 0x00, 0x06};
+    feed_hw_uart(lock_cmd, sizeof(lock_cmd));
+    comm_protocol_tick();
+
+    /* Verify response: RESP_OK */
+    assert(mock_hw_tx_len == 6);
+    assert(mock_hw_tx_data[0] == 0xAA);
+    assert(mock_hw_tx_data[1] == 0x02);
+    assert(mock_hw_tx_data[2] == CMD_PUMP_LOCK);
+    assert(mock_hw_tx_data[3] == 0x01);
+    assert(mock_hw_tx_data[4] == RESP_OK);
+    assert(mock_relay_state == RELAY_STATE_LOCKED);
+    printf("PASSED\n");
+
+    /* =======================================================================
+     * Test Case 11: CMD_PUMP_ON while LOCKED
+     * =====================================================================*/
+    printf("[Test 11] CMD_PUMP_ON while locked... ");
+    comm_protocol_init();
+    reset_tx();
+    /* mock_relay_state is still LOCKED from Test 10 */
+
+    /* Frame: SOF (0xAA) + Type (CMD=0x01) + ID (CMD_PUMP_ON=0x01) + Len (0x00) + Checksum (0x01 ^ 0x01 ^ 0x00 = 0x00) */
+    uint8_t pump_on_locked[] = {0xAA, 0x01, CMD_PUMP_ON, 0x00, 0x00};
+    feed_hw_uart(pump_on_locked, sizeof(pump_on_locked));
+    comm_protocol_tick();
+
+    /* Verify response: RESP_ERR_LOCKED */
+    assert(mock_hw_tx_len == 6);
+    assert(mock_hw_tx_data[0] == 0xAA);
+    assert(mock_hw_tx_data[1] == 0x02);
+    assert(mock_hw_tx_data[2] == CMD_PUMP_ON);
+    assert(mock_hw_tx_data[3] == 0x01);
+    assert(mock_hw_tx_data[4] == RESP_ERR_LOCKED);
+    assert(mock_relay_state == RELAY_STATE_LOCKED);
+    printf("PASSED\n");
+
+    /* =======================================================================
+     * Test Case 12: CMD_PUMP_OFF while LOCKED
+     * =====================================================================*/
+    printf("[Test 12] CMD_PUMP_OFF while locked... ");
+    comm_protocol_init();
+    reset_tx();
+    /* mock_relay_state is still LOCKED */
+
+    /* Frame: SOF (0xAA) + Type (CMD=0x01) + ID (CMD_PUMP_OFF=0x02) + Len (0x00) + Checksum (0x01 ^ 0x02 ^ 0x00 = 0x03) */
+    uint8_t pump_off_locked[] = {0xAA, 0x01, CMD_PUMP_OFF, 0x00, 0x03};
+    feed_hw_uart(pump_off_locked, sizeof(pump_off_locked));
+    comm_protocol_tick();
+
+    /* Verify response: RESP_ERR_LOCKED */
+    assert(mock_hw_tx_len == 6);
+    assert(mock_hw_tx_data[0] == 0xAA);
+    assert(mock_hw_tx_data[1] == 0x02);
+    assert(mock_hw_tx_data[2] == CMD_PUMP_OFF);
+    assert(mock_hw_tx_data[3] == 0x01);
+    assert(mock_hw_tx_data[4] == RESP_ERR_LOCKED);
+    assert(mock_relay_state == RELAY_STATE_LOCKED);
+    printf("PASSED\n");
+
+    /* =======================================================================
+     * Test Case 13: CMD_PUMP_UNLOCK
+     * =====================================================================*/
+    printf("[Test 13] CMD_PUMP_UNLOCK command... ");
+    comm_protocol_init();
+    reset_tx();
+    /* mock_relay_state is still LOCKED */
+
+    /* Frame: SOF (0xAA) + Type (CMD=0x01) + ID (CMD_PUMP_UNLOCK=0x08) + Len (0x00) + Checksum (0x01 ^ 0x08 ^ 0x00 = 0x09) */
+    uint8_t unlock_cmd[] = {0xAA, 0x01, CMD_PUMP_UNLOCK, 0x00, 0x09};
+    feed_hw_uart(unlock_cmd, sizeof(unlock_cmd));
+    comm_protocol_tick();
+
+    /* Verify response: RESP_OK */
+    assert(mock_hw_tx_len == 6);
+    assert(mock_hw_tx_data[0] == 0xAA);
+    assert(mock_hw_tx_data[1] == 0x02);
+    assert(mock_hw_tx_data[2] == CMD_PUMP_UNLOCK);
+    assert(mock_hw_tx_data[3] == 0x01);
+    assert(mock_hw_tx_data[4] == RESP_OK);
+    assert(mock_relay_state == RELAY_STATE_IDLE);
+    printf("PASSED\n");
+
     printf("\n==================================================\n");
-    printf("   All tests completed successfully! 🎉\n");
+    printf("   All tests completed successfully! \xF0\x9F\x8E\x89\n");
     printf("==================================================\n");
     return 0;
 }

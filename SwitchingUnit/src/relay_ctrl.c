@@ -8,7 +8,7 @@
  * Timing Constants
  * -------------------------------------------------------------------------*/
 #define STARTER_MAX_MS      3000UL   /* 3 s max for starter winding         */
-#define STOP_PULSE_MS       200UL    /* NC relay pulse to break coil circuit */
+#define STOP_PULSE_MS       500UL    /* NC relay pulse to break coil circuit */
 #define COOLDOWN_MS         170000UL /* 170 s before next start allowed     */
 #define MOTOR_GRACE_MS      2000UL   /* Grace period after entering RUNNING
                                         before checking motor feedback      */
@@ -67,6 +67,9 @@ relay_result_t relay_pump_on(void)
     case RELAY_STATE_STOPPING:
         return RELAY_ERR_COOLDOWN;
 
+    case RELAY_STATE_LOCKED:
+        return RELAY_ERR_LOCKED;
+
     default:
         return RELAY_ERR_FAULT;
     }
@@ -95,9 +98,32 @@ relay_result_t relay_pump_off(void)
     case RELAY_STATE_STOPPING:
         return RELAY_ERR_ALREADY_OFF;
 
+    case RELAY_STATE_LOCKED:
+        return RELAY_ERR_LOCKED;
+
     default:
         return RELAY_ERR_FAULT;
     }
+}
+
+relay_result_t relay_pump_lock(void)
+{
+    /* Lock is accepted from any state. Safe all NO relays, energize NC. */
+    relay_large_no_off();
+    relay_small_no_off();
+    relay_nc_activate();
+    enter_state(RELAY_STATE_LOCKED);
+    return RELAY_OK;
+}
+
+relay_result_t relay_pump_unlock(void)
+{
+    if (state != RELAY_STATE_LOCKED) {
+        return RELAY_ERR_ALREADY_OFF;
+    }
+    relay_nc_deactivate();
+    enter_state(RELAY_STATE_IDLE);
+    return RELAY_OK;
 }
 
 void relay_tick(void)
@@ -165,6 +191,10 @@ void relay_tick(void)
             enter_state(RELAY_STATE_IDLE);
             comm_send_event(EVT_COOLDOWN_ENDED, (void *)0, 0);
         }
+        break;
+
+    case RELAY_STATE_LOCKED:
+        /* Stable state — NC relay held energized, no auto-transition. */
         break;
     }
 }

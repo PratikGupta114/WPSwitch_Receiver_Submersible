@@ -31,6 +31,8 @@
 #define REQ_GET_ENERGY          0x04
 #define CMD_PING                0x05
 #define REQ_GET_VERSION         0x06
+#define CMD_PUMP_LOCK           0x07
+#define CMD_PUMP_UNLOCK         0x08
 
 /* --- Response Status Codes (payload byte 0 in responses) --- */
 #define RESP_OK                 0x00
@@ -40,6 +42,7 @@
 #define RESP_ERR_FAULT          0x04
 #define RESP_ERR_UNKNOWN_CMD    0x05
 #define RESP_ERR_NOT_AVAILABLE  0x06
+#define RESP_ERR_LOCKED         0x07
 
 /* --- Event IDs (Switching Unit → Control Unit) --- */
 #define EVT_PUMP_STARTED        0x01

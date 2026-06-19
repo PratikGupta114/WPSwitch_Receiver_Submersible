@@ -1,0 +1,11 @@
+dependencies:
+  espp/cobs:
+    version: "~1.0.30"
+  idf:
+    version: ">=4.4.0"
+  espressif/cjson:
+    version: "*"
+  espressif/mqtt:
+    version: "*"
+  espressif/led_strip:
+    version: "*"

@@ -1,2 +1,32 @@
-idf_component_register(SRCS "ControlUnit.c"
-                    INCLUDE_DIRS ".")
+idf_component_register(
+    SRCS
+        "main.cc"
+        "peripherals/PeripheralManager.cc"
+        "peripherals/UartManager.cc"
+        "peripherals/SensorDataRepo.cc"
+        "https/HttpsServer.cpp"
+        "https/HttpsClient.cc"
+        "storage/nvsManager.cpp"
+        "wifi/WiFiManager.cpp"
+        "wifi/DynamicCredentialGenerator.cpp"
+        "ota/otaManager.cc"
+        "mqtt/MQTTManager.cc"
+        "mqtt/MqttCommandProcessor.cc"
+        "peripherals/BuzzerControl.cc"
+        "pump_controller/PumpController.cc"
+        "ledIndication/LedIndication.cc"
+        "ws2812/WS2812.cpp"
+        "peripherals/I2CManager.cc"
+        "uart_protocol/UartFraming.cc"
+        "utils/HeapMonitor.cc"
+        "filters/WaterLevelMedianFilter.cc"
+        "filters/WaterLevelKalmanFilter.cc"
+        "switching_unit/SwitchingUnitManager.cc"
+    INCLUDE_DIRS
+        "."
+    EMBED_TXTFILES
+        "certs/https_server_certificate.pem"
+        "certs/https_server_key.pem"
+        "certs/emqxsl_ca.crt"
+        "certs/firebase_function.pem"
+)

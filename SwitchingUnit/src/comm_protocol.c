@@ -32,7 +32,7 @@ static parse_state_t parse_state   = PARSE_WAIT_SOF;
 static proto_frame_t rx_frame;
 static uint8_t       payload_idx;
 static uint8_t       calc_checksum;
-static uint32_t      frame_start_ms;
+static uint32_t      last_rx_byte_ms = 0;
 
 /** Discard incomplete frame after this many ms with no new byte */
 #define FRAME_TIMEOUT_MS  50
@@ -78,13 +78,15 @@ void comm_send_event(uint8_t evt_id, const uint8_t *payload, uint8_t len)
 void comm_protocol_init(void)
 {
     parse_state = PARSE_WAIT_SOF;
+    last_rx_byte_ms = 0;
 }
 
 void comm_protocol_tick(void)
 {
+    uint32_t now = millis();
     /* Timeout guard: discard incomplete frame */
     if (parse_state != PARSE_WAIT_SOF) {
-        if ((millis() - frame_start_ms) > FRAME_TIMEOUT_MS) {
+        if ((now - last_rx_byte_ms) > FRAME_TIMEOUT_MS) {
             parse_state = PARSE_WAIT_SOF;
         }
     }
@@ -93,12 +95,12 @@ void comm_protocol_tick(void)
     int16_t b;
     while ((b = hw_uart_read_byte()) >= 0) {
         uint8_t byte = (uint8_t)b;
+        last_rx_byte_ms = millis(); // Update timestamp on byte receipt
 
         switch (parse_state) {
         case PARSE_WAIT_SOF:
             if (byte == PROTO_SOF) {
                 parse_state    = PARSE_WAIT_TYPE;
-                frame_start_ms = millis();
             }
             break;
 
@@ -138,6 +140,7 @@ void comm_protocol_tick(void)
         case PARSE_WAIT_CHECKSUM:
             if (byte == calc_checksum) {
                 /* Valid frame — dispatch commands or requests */
+                presence_record_uart_active();
                 if (rx_frame.type == PROTO_TYPE_COMMAND) {
                     handle_command(&rx_frame);
                 } else if (rx_frame.type == PROTO_TYPE_REQUEST) {
@@ -180,6 +183,10 @@ static void handle_command(const proto_frame_t *frame)
             resp[0] = RESP_ERR_ALREADY_ON;
             comm_send_response(CMD_PUMP_ON, resp, 1);
             break;
+        case RELAY_ERR_LOCKED:
+            resp[0] = RESP_ERR_LOCKED;
+            comm_send_response(CMD_PUMP_ON, resp, 1);
+            break;
         default:
             resp[0] = RESP_ERR_FAULT;
             comm_send_response(CMD_PUMP_ON, resp, 1);
@@ -198,6 +205,9 @@ static void handle_command(const proto_frame_t *frame)
         case RELAY_ERR_ALREADY_OFF:
             resp[0] = RESP_ERR_ALREADY_OFF;
             break;
+        case RELAY_ERR_LOCKED:
+            resp[0] = RESP_ERR_LOCKED;
+            break;
         default:
             resp[0] = RESP_ERR_FAULT;
             break;
@@ -211,6 +221,32 @@ static void handle_command(const proto_frame_t *frame)
         resp[0] = RESP_OK;
         comm_send_response(CMD_PING, resp, 1);
         break;
+
+    /* --- CMD_PUMP_LOCK ------------------------------------------------- */
+    case CMD_PUMP_LOCK: {
+        relay_pump_lock();
+        resp[0] = RESP_OK;
+        comm_send_response(CMD_PUMP_LOCK, resp, 1);
+        break;
+    }
+
+    /* --- CMD_PUMP_UNLOCK ----------------------------------------------- */
+    case CMD_PUMP_UNLOCK: {
+        relay_result_t result = relay_pump_unlock();
+        switch (result) {
+        case RELAY_OK:
+            resp[0] = RESP_OK;
+            break;
+        case RELAY_ERR_ALREADY_OFF:
+            resp[0] = RESP_ERR_ALREADY_OFF;
+            break;
+        default:
+            resp[0] = RESP_ERR_FAULT;
+            break;
+        }
+        comm_send_response(CMD_PUMP_UNLOCK, resp, 1);
+        break;
+    }
 
     /* --- Unknown Command ----------------------------------------------- */
     default:
@@ -243,22 +279,30 @@ static void handle_request(const proto_frame_t *frame)
     case REQ_GET_ENERGY: {
 #if FEATURE_HLW8032
         const hlw8032_data_t *edata = hlw8032_get_data();
-        resp[0]  = edata->valid;
-        /* Voltage parameter (3 B) + data (3 B) */
-        resp[1]  = edata->voltage_reg[0];
-        resp[2]  = edata->voltage_reg[1];
-        resp[3]  = edata->voltage_reg[2];
-        resp[4]  = edata->voltage_data[0];
-        resp[5]  = edata->voltage_data[1];
-        resp[6]  = edata->voltage_data[2];
-        /* Current parameter (3 B) + data (3 B) */
-        resp[7]  = edata->current_reg[0];
-        resp[8]  = edata->current_reg[1];
-        resp[9]  = edata->current_reg[2];
-        resp[10] = edata->current_data[0];
-        resp[11] = edata->current_data[1];
-        resp[12] = edata->current_data[2];
-        comm_send_response(REQ_GET_ENERGY, resp, 13);
+        if (edata->valid) {
+            uint32_t v_mv, i_ma, p_mw;
+            calculate_energy_parameters(edata, &v_mv, &i_ma, &p_mw);
+            
+            resp[0]  = (uint8_t)(v_mv >> 24);
+            resp[1]  = (uint8_t)(v_mv >> 16);
+            resp[2]  = (uint8_t)(v_mv >> 8);
+            resp[3]  = (uint8_t)(v_mv & 0xFF);
+            
+            resp[4]  = (uint8_t)(i_ma >> 24);
+            resp[5]  = (uint8_t)(i_ma >> 16);
+            resp[6]  = (uint8_t)(i_ma >> 8);
+            resp[7]  = (uint8_t)(i_ma & 0xFF);
+            
+            resp[8]  = (uint8_t)(p_mw >> 24);
+            resp[9]  = (uint8_t)(p_mw >> 16);
+            resp[10] = (uint8_t)(p_mw >> 8);
+            resp[11] = (uint8_t)(p_mw & 0xFF);
+            
+            comm_send_response(REQ_GET_ENERGY, resp, 12);
+        } else {
+            resp[0] = RESP_ERR_NOT_AVAILABLE;
+            comm_send_response(REQ_GET_ENERGY, resp, 1);
+        }
 #else
         resp[0] = RESP_ERR_NOT_AVAILABLE;
         comm_send_response(REQ_GET_ENERGY, resp, 1);

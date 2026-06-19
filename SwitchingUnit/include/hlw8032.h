@@ -56,6 +56,20 @@ void hlw8032_tick(void);
  */
 const hlw8032_data_t *hlw8032_get_data(void);
 
+#define V_SCALE_FACTOR  7522ULL
+#define I_SCALE_FACTOR  940000ULL
+#define P_SCALE_FACTOR  7061760ULL
+
+/**
+ * @brief Calculate physical energy parameters using fixed-point integer arithmetic.
+ * @param edata      Pointer to valid HLW8032 register data.
+ * @param voltage_mv Pointer to store calculated voltage in millivolts.
+ * @param current_ma Pointer to store calculated current in milliamperes.
+ * @param power_mw   Pointer to store calculated active power in milliwatts.
+ */
+void calculate_energy_parameters(const hlw8032_data_t *edata, uint32_t *voltage_mv, uint32_t *current_ma, uint32_t *power_mw);
+
+
 #else
 
 /* Dummy inline functions when HLW8032 is disabled */

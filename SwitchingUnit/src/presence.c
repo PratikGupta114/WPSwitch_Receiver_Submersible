@@ -24,6 +24,7 @@
  * -------------------------------------------------------------------------*/
 static uint32_t last_pulse_ms   = 0;
 static uint32_t last_cu_seen_ms = 0;
+static uint32_t last_cu_uart_ms = 0;
 static volatile uint8_t  pulse_active    = 0;
 static uint8_t  cu_present      = 0;
 
@@ -32,6 +33,7 @@ void presence_init(void)
     presence_pin_release();          /* Start released (HIGH) */
     last_pulse_ms   = millis();
     last_cu_seen_ms = millis();
+    last_cu_uart_ms = 0;
     cu_present      = 0;
     pulse_active    = 0;
 }
@@ -55,7 +57,7 @@ void presence_tick(void)
     }
 
     /* --- Evaluate CU presence --- */
-    uint8_t was_present = cu_present;
+    uint8_t was_present = presence_is_control_unit_present();
 
     /*
      * Disabling interrupts briefly is not strictly necessary for 32-bit reads,
@@ -72,14 +74,18 @@ void presence_tick(void)
         cu_present = 1;
     }
 
+    uint8_t is_present = presence_is_control_unit_present();
     /* Fire event on state change */
-    if (cu_present != was_present) {
-        comm_send_event(EVT_PRESENCE_CHANGE, &cu_present, 1);
+    if (is_present != was_present) {
+        comm_send_event(EVT_PRESENCE_CHANGE, &is_present, 1);
     }
 }
 
 uint8_t presence_is_control_unit_present(void)
 {
+    if (last_cu_uart_ms != 0 && (millis() - last_cu_uart_ms) < 2000UL) {
+        return 1;
+    }
     return cu_present;
 }
 
@@ -91,6 +97,11 @@ uint8_t presence_is_pulsing_active(void)
 void presence_record_cu_seen(void)
 {
     last_cu_seen_ms = millis();
+}
+
+void presence_record_uart_active(void)
+{
+    last_cu_uart_ms = millis();
 }
 
 /* ---------------------------------------------------------------------------

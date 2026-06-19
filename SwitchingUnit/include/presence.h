@@ -33,4 +33,7 @@ uint8_t presence_is_pulsing_active(void);
 /** @brief Record that a pulse was received from the Control Unit (called by EXTI ISR). */
 void presence_record_cu_seen(void);
 
+/** @brief Record that a valid UART message was received from the Control Unit. */
+void presence_record_uart_active(void);
+
 #endif /* PRESENCE_H */
