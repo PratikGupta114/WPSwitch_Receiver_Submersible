@@ -4,10 +4,18 @@ SwitchingUnit/.vscode/
 
 # ESP-IDF
 ControlUnit/build/
+ControlUnit/build_*/
 ControlUnit/managed_components/
+ControlUnit/sdkconfig
 ControlUnit/sdkconfig.old
+ControlUnit/sdkconfig.prototype
+ControlUnit/sdkconfig.rev1
+ControlUnit/sdkconfig.rev*
+.agent/
 
 # Host tests/temp files
+SwitchingUnit/.pio/
+SwitchingUnit/.vscode/
 SwitchingUnit/test_comms_hlw*
 SwitchingUnit/test_comms_hlw_disabled*
 

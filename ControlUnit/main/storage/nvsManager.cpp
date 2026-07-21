@@ -1426,3 +1426,85 @@ esp_err_t NVSManager::writeUint8(const char *key, uint8_t value)
     ESP_LOGW(TAG, "Wrote uint8 key '%s' = %u to NVS", key, value);
     return ESP_OK;
 }
+
+bool NVSManager::setPrimingPeriodSeconds(float seconds)
+{
+    // Validation: Reject unreasonable values (e.g. negative or > 10 minutes)
+    if (seconds < 0.0f || seconds > 600.0f)
+    {
+        ESP_LOGE(TAG, "!!! REJECTED INVALID PRIMING PERIOD !!!");
+        ESP_LOGE(TAG, "  Attempted to store: %.2f seconds", seconds);
+        ESP_LOGE(TAG, "  Valid range: 0.0 - 600.0 seconds");
+        return false;
+    }
+
+    nvs_handle_t handle;
+    esp_err_t result = nvs_open(NVS_RECEIVER_DEVICE_PARAMS_NAMESPACE, NVS_READWRITE, &handle);
+    if (result != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to open nvs namespace: %s", esp_err_to_name(result));
+        return false;
+    }
+
+    result = nvs_set_u32(handle, "prime_sec", (uint32_t)(seconds * 1000.0f));
+    if (result != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to set priming period: %s", esp_err_to_name(result));
+        nvs_close(handle);
+        return false;
+    }
+
+    result = nvs_commit(handle);
+    if (result != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to commit nvs: %s", esp_err_to_name(result));
+        nvs_close(handle);
+        return false;
+    }
+
+    nvs_close(handle);
+    ESP_LOGI(TAG, "Priming period stored to NVS: %.2f seconds", seconds);
+    return true;
+}
+
+bool NVSManager::getPrimingPeriodSeconds(float &seconds)
+{
+    nvs_handle_t handle;
+    esp_err_t result = nvs_open(NVS_RECEIVER_DEVICE_PARAMS_NAMESPACE, NVS_READONLY, &handle);
+    if (result != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to open nvs namespace: %s", esp_err_to_name(result));
+        return false;
+    }
+
+    uint32_t value;
+    result = nvs_get_u32(handle, "prime_sec", &value);
+    if (result == ESP_OK)
+    {
+        seconds = (float)value / 1000.0f;
+        
+        if (seconds > 600.0f || seconds < 0.0f)
+        {
+            ESP_LOGE(TAG, "!!! REJECTED CORRUPTED PRIMING PERIOD FROM NVS !!!");
+            ESP_LOGE(TAG, "  Loaded value: %.2f seconds", seconds);
+            nvs_close(handle);
+            return false;
+        }
+        
+        ESP_LOGI(TAG, "Priming period loaded from NVS: %.2f seconds", seconds);
+    }
+    nvs_close(handle);
+
+    if (result == ESP_ERR_NVS_NOT_FOUND)
+    {
+        ESP_LOGI(TAG, "Priming period not found in NVS (first boot or cleared)");
+        return false;
+    }
+    else if (result != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to get priming period: %s", esp_err_to_name(result));
+        return false;
+    }
+
+    return true;
+}

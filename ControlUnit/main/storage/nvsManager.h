@@ -77,6 +77,10 @@ public:
     bool getKalmanStateXHat(float &x_hat);
     bool getKalmanStateP(float &p);
 
+    // Priming period methods
+    bool setPrimingPeriodSeconds(float seconds);
+    bool getPrimingPeriodSeconds(float &seconds);
+
     // Lockout status methods
     bool setLockoutActive(bool active);
     bool getLockoutActive(bool &active);

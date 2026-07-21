@@ -318,6 +318,7 @@ void PumpController::processStallDetection()
     if (sensorRepo.getSensorData(currentSensorData) == DATA_FETCH_SUCCESS && currentSensorData != NULL)
     {
         uint8_t currentWaterLevel = currentSensorData->waterLevel;
+        uint64_t currentSequenceNumber = currentSensorData->sequenceNumber;
         free(currentSensorData);
 
         // Update EMA
@@ -327,16 +328,34 @@ void PumpController::processStallDetection()
         {
         case GRACE_PERIOD:
         {
-            if (esp_timer_get_time() >= gracePeriodEndTimestamp)
+            // Early exit: EMA of water level has risen ≥2% above start level.
+            if (ema_water_level >= pumpStartWaterLevel + 2.0f)
             {
-                ESP_LOGI(TAG, "Stall Detection: Grace period ended. Transitioning to MONITORING state.");
+                ESP_LOGI(TAG, "Stall Detection: Water rising during GRACE_PERIOD!");
+                ESP_LOGI(TAG, "  EMA Level: %.1f%% >= %d%% + 2%% threshold", ema_water_level, pumpStartWaterLevel);
+                ESP_LOGI(TAG, "  Transitioning to MONITORING (early exit)");
+
                 monitoringState = MONITORING;
-                lastLevelChangeTimestamp = esp_timer_get_time(); // Reset for slow check
+                lastLevelChangeTimestamp = esp_timer_get_time();
+                lastWaterLevelForStallCheck = currentWaterLevel;
+            }
+            else if (esp_timer_get_time() >= gracePeriodEndTimestamp)
+            {
+                ESP_LOGW(TAG, "Stall Detection: Protected window expired without water level rise!");
+                ESP_LOGW(TAG, "  Start Level: %d%%, EMA Level: %.1f%%", pumpStartWaterLevel, ema_water_level);
+                ESP_LOGW(TAG, "  Transitioning to STALL_SUSPECTED");
+
+                monitoringState = STALL_SUSPECTED;
+                stall_check_start_timestamp = esp_timer_get_time();
+                stall_confirmation_count = 0;
+                stallCheckReadingsCount = 0;
+                initialWaterLevelForStallCheck = currentWaterLevel;
+                initialStallCheckSeqNum = currentSequenceNumber;
             }
             else
             {
                 int64_t remainingSeconds = (gracePeriodEndTimestamp - esp_timer_get_time()) / 1000000;
-                ESP_LOGD(TAG, "Stall Detection: In GRACE_PERIOD, %lld seconds remaining", remainingSeconds);
+                ESP_LOGD(TAG, "Stall Detection: In GRACE_PERIOD, %lld seconds remaining, EMA=%.1f%%", remainingSeconds, ema_water_level);
             }
             break;
         }
@@ -405,8 +424,9 @@ void PumpController::processStallDetection()
                 stall_check_start_timestamp = esp_timer_get_time();
                 stall_confirmation_count = 0;
                 stallCheckReadingsCount = 0;
-                // Store initial water level for comparison
+                // Store initial water level and sequence number for comparison
                 initialWaterLevelForStallCheck = currentWaterLevel;
+                initialStallCheckSeqNum = currentSequenceNumber;
             }
             break;
         }
@@ -418,33 +438,51 @@ void PumpController::processStallDetection()
             // Take a reading every 5 seconds, up to 3 readings
             if (timeInStallSuspectedState >= (stallCheckReadingsCount + 1) * 5 && stallCheckReadingsCount < 3)
             {
-                // Store the reading
+                // Store the reading and sequence number
                 stallCheckReadings[stallCheckReadingsCount] = currentWaterLevel;
+                stallCheckSequenceNumbers[stallCheckReadingsCount] = currentSequenceNumber;
                 stallCheckReadingsCount++;
 
-                ESP_LOGI(TAG, "Stall Detection: Confirmation check %d/3 - WaterLevel=%d%%, InitialLevel=%d%%, Delta=%d%%",
-                         stallCheckReadingsCount, currentWaterLevel, initialWaterLevelForStallCheck,
+                ESP_LOGI(TAG, "Stall Detection: Confirmation check %d/3 - WaterLevel=%d%%, SeqNum=%llu, InitialLevel=%d%%, Delta=%d%%",
+                         stallCheckReadingsCount, currentWaterLevel, (unsigned long long)currentSequenceNumber, initialWaterLevelForStallCheck,
                          (int)currentWaterLevel - (int)initialWaterLevelForStallCheck);
             }
 
             // After 15 seconds (3 readings), make a decision
             if (timeInStallSuspectedState >= 15 && stallCheckReadingsCount >= 3)
             {
-                // Count how many readings showed an increase compared to the initial level
+                // Count how many readings showed an increase compared to the initial level, excluding stale packets
+                uint8_t validReadings = 0;
                 uint8_t increaseCount = 0;
                 for (int i = 0; i < 3; i++)
                 {
-                    if (stallCheckReadings[i] > initialWaterLevelForStallCheck)
+                    uint64_t prevSeqNum = (i == 0) ? initialStallCheckSeqNum : stallCheckSequenceNumbers[i-1];
+                    bool isFresh = (stallCheckSequenceNumbers[i] != prevSeqNum);
+
+                    if (isFresh)
                     {
-                        increaseCount++;
+                        validReadings++;
+                        if (stallCheckReadings[i] > initialWaterLevelForStallCheck)
+                        {
+                            increaseCount++;
+                        }
+                    }
+                    else
+                    {
+                        ESP_LOGW(TAG, "  Reading %d: STALE (sequence number %llu unchanged)", i, (unsigned long long)stallCheckSequenceNumbers[i]);
                     }
                 }
 
-                // If a majority of readings (>= 2 out of 3) show an increase, transition back to MONITORING
-                if (increaseCount >= 2)
+                if (validReadings < 2)
                 {
-                    ESP_LOGI(TAG, "Stall Detection: STALL NOT CONFIRMED - %d/3 readings showed increase. Readings: [%d%%, %d%%, %d%%]. Returning to MONITORING.",
-                             increaseCount, stallCheckReadings[0], stallCheckReadings[1], stallCheckReadings[2]);
+                    ESP_LOGW(TAG, "Stall Confirmation: Only %d/3 fresh readings (RF dropout). Restarting confirmation check.", validReadings);
+                    stall_check_start_timestamp = esp_timer_get_time();
+                    stallCheckReadingsCount = 0;
+                }
+                else if (increaseCount * 2 >= validReadings)
+                {
+                    ESP_LOGI(TAG, "Stall Detection: STALL NOT CONFIRMED - %d/%d valid readings showed increase. Returning to MONITORING.",
+                             increaseCount, validReadings);
                     monitoringState = MONITORING;
                     // Reset the slow check timer
                     lastLevelChangeTimestamp = esp_timer_get_time();
@@ -452,8 +490,8 @@ void PumpController::processStallDetection()
                 else
                 {
                     // Otherwise, confirm stall and turn off pump
-                    ESP_LOGE(TAG, "Stall Detection: STALL CONFIRMED - Only %d/3 readings showed increase. Readings: [%d%%, %d%%, %d%%]. InitialLevel=%d%%. TURNING OFF PUMP!",
-                             increaseCount, stallCheckReadings[0], stallCheckReadings[1], stallCheckReadings[2], initialWaterLevelForStallCheck);
+                    ESP_LOGE(TAG, "Stall Detection: STALL CONFIRMED - Only %d/%d valid readings showed increase. InitialLevel=%d%%. TURNING OFF PUMP!",
+                             increaseCount, validReadings, initialWaterLevelForStallCheck);
                     setManualPumpRestartRequired(true);
                     turnWaterPumpOff(getCurrentTimestampMillis(), PUMP_STOP_REASON_STALL_DETECTED);
                 }
@@ -1601,7 +1639,7 @@ void PumpController::syncPumpOnState(uint64_t currentTimestamp, PumpStartReason 
     if (pumpStartWaterLevel == 0)
     {
         monitoringState = GRACE_PERIOD;
-        gracePeriodEndTimestamp = esp_timer_get_time() + (CONFIG_PUMP_STALL_GRACE_PERIOD_SEC * 100000LL);
+        gracePeriodEndTimestamp = esp_timer_get_time() + (CONFIG_PUMP_STALL_GRACE_PERIOD_SEC * 1000000LL);
         ema_water_level = 0.0f;
         previous_ema_water_level = 0.0f;
         ESP_LOGI(TAG, "Sync: Pump starting in GRACE_PERIOD for %d seconds.", CONFIG_PUMP_STALL_GRACE_PERIOD_SEC);

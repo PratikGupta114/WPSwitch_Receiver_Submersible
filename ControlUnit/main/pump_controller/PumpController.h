@@ -213,6 +213,8 @@ private:
     int64_t gracePeriodEndTimestamp;
     uint8_t initialWaterLevelForStallCheck;
     uint8_t stallCheckReadings[3];
+    uint64_t stallCheckSequenceNumbers[3];
+    uint64_t initialStallCheckSeqNum;
     uint8_t stallCheckReadingsCount;
 
     // EMA smoothing variables for water level

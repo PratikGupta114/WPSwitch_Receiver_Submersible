@@ -191,20 +191,32 @@ void otaTask(void *params)
         ESP_LOGI(TAG, "Stack high water mark before HTTPS request: %u bytes", (unsigned int)stackBefore);
 
         // Step 2. check for a new version by making a call to the rest api
+        const esp_app_desc_t *appDesc = esp_app_get_description();
+        const char *projectName = (appDesc != NULL && appDesc->project_name[0] != '\0') ? appDesc->project_name : "wpswitch-submersible";
+        char versionCheckUrl[256];
+        if (strchr(VERSION_CHECK_API_URL, '?') != NULL)
+        {
+            snprintf(versionCheckUrl, sizeof(versionCheckUrl), "%s&projectName=%s", VERSION_CHECK_API_URL, projectName);
+        }
+        else
+        {
+            snprintf(versionCheckUrl, sizeof(versionCheckUrl), "%s?projectName=%s", VERSION_CHECK_API_URL, projectName);
+        }
+
         // Use device ID for authentication if available
         HttpsClientResponse *response = NULL;
         if (otaManager->deviceID != NULL && strlen(otaManager->deviceID) > 0)
         {
             ESP_LOGW(TAG, "Making authenticated OTA version check request");
-            ESP_LOGW(TAG, "Version check URL: %s", VERSION_CHECK_API_URL);
+            ESP_LOGW(TAG, "Version check URL: %s", versionCheckUrl);
             ESP_LOGW(TAG, "Device ID: %s", otaManager->deviceID);
-            response = httpsClient->makeGetRequestTo(VERSION_CHECK_API_URL, otaManager->deviceID);
+            response = httpsClient->makeGetRequestTo(versionCheckUrl, otaManager->deviceID);
         }
         else
         {
             ESP_LOGW(TAG, "No device ID set for OTA authentication, request may fail");
-            ESP_LOGW(TAG, "Version check URL: %s", VERSION_CHECK_API_URL);
-            response = httpsClient->makeGetRequestTo(VERSION_CHECK_API_URL);
+            ESP_LOGW(TAG, "Version check URL: %s", versionCheckUrl);
+            response = httpsClient->makeGetRequestTo(versionCheckUrl);
         }
 
         // Log stack high water mark after TLS operation (critical for diagnosing stack overflow)
@@ -378,40 +390,36 @@ void otaTask(void *params)
         // Configure the http client for the ota update
         esp_http_client_config_t config = {};
         
-        // Build authenticated URL with deviceID for firmware download
+        // Build authenticated URL with deviceID and projectName for firmware download
         char *firmwareUrl = NULL;
-        if (otaManager->deviceID != NULL && strlen(otaManager->deviceID) > 0)
+        const esp_app_desc_t *runningAppDesc = esp_app_get_description();
+        projectName = (runningAppDesc != NULL && runningAppDesc->project_name[0] != '\0') ? runningAppDesc->project_name : "wpswitch-submersible";
+        size_t urlLen = strlen(FIRMWARE_OTA_UPDATE_URL);
+        size_t deviceIDLen = (otaManager->deviceID != NULL) ? strlen(otaManager->deviceID) : 0;
+        size_t projLen = strlen(projectName);
+        size_t authUrlLen = urlLen + deviceIDLen + projLen + 64;
+        
+        firmwareUrl = (char *)malloc(authUrlLen);
+        if (firmwareUrl != NULL)
         {
-            size_t urlLen = strlen(FIRMWARE_OTA_UPDATE_URL);
-            size_t deviceIDLen = strlen(otaManager->deviceID);
-            size_t authUrlLen = urlLen + 10 + deviceIDLen + 1; // 10 = strlen("?deviceID=")
-            
-            firmwareUrl = (char *)malloc(authUrlLen);
-            if (firmwareUrl != NULL)
+            char sep = (strchr(FIRMWARE_OTA_UPDATE_URL, '?') != NULL) ? '&' : '?';
+            if (otaManager->deviceID != NULL && strlen(otaManager->deviceID) > 0)
             {
-                // Check if URL already has query parameters
-                if (strchr(FIRMWARE_OTA_UPDATE_URL, '?') != NULL)
-                {
-                    snprintf(firmwareUrl, authUrlLen, "%s&deviceID=%s", FIRMWARE_OTA_UPDATE_URL, otaManager->deviceID);
-                }
-                else
-                {
-                    snprintf(firmwareUrl, authUrlLen, "%s?deviceID=%s", FIRMWARE_OTA_UPDATE_URL, otaManager->deviceID);
-                }
-                ESP_LOGW(TAG, "OTA firmware download URL (authenticated): %s", firmwareUrl);
-                config.url = firmwareUrl;
+                snprintf(firmwareUrl, authUrlLen, "%s%cprojectName=%s&deviceID=%s",
+                         FIRMWARE_OTA_UPDATE_URL, sep, projectName, otaManager->deviceID);
             }
             else
             {
-                ESP_LOGE(TAG, "Failed to allocate memory for authenticated firmware URL");
-                ESP_LOGW(TAG, "OTA firmware download URL (fallback): %s", FIRMWARE_OTA_UPDATE_URL);
-                config.url = FIRMWARE_OTA_UPDATE_URL;
+                snprintf(firmwareUrl, authUrlLen, "%s%cprojectName=%s",
+                         FIRMWARE_OTA_UPDATE_URL, sep, projectName);
             }
+            ESP_LOGW(TAG, "OTA firmware download URL: %s", firmwareUrl);
+            config.url = firmwareUrl;
         }
         else
         {
-            ESP_LOGW(TAG, "No device ID set for firmware download authentication");
-            ESP_LOGW(TAG, "OTA firmware download URL (unauthenticated): %s", FIRMWARE_OTA_UPDATE_URL);
+            ESP_LOGE(TAG, "Failed to allocate memory for authenticated firmware URL");
+            ESP_LOGW(TAG, "OTA firmware download URL (fallback): %s", FIRMWARE_OTA_UPDATE_URL);
             config.url = FIRMWARE_OTA_UPDATE_URL;
         }
         
@@ -444,6 +452,11 @@ void otaTask(void *params)
         if (client == NULL)
         {
             ESP_LOGE(TAG, "Failed to initialize http client for OTA. Aborting !!");
+            if (firmwareUrl != NULL)
+            {
+                free(firmwareUrl);
+                firmwareUrl = NULL;
+            }
             otaManager->abortOTA("Failed to initialize HTTP client");
             continue;
         }
