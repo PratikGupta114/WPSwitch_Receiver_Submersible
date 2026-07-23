@@ -70,6 +70,8 @@ PumpController::PumpController(PeripheralManager &peripheralManager,
       gracePeriodEndTimestamp(0),
       initialWaterLevelForStallCheck(0),
       stallCheckReadingsCount(0),
+      firstRiseTimestamp(0),
+      primingTimeRecorded(false),
       ema_water_level(0.0f),
       previous_ema_water_level(0.0f),
       fast_check_start_level(0.0f),
@@ -309,17 +311,31 @@ void PumpController::processStallDetection()
     // The lockout feature only controls whether a restart delay is enforced,
     // NOT whether stall detection monitors pump operation (safety-critical)
     
-    if (isRecalibrationModeActive)
-    {
-        return;
-    }
-
     SensorData *currentSensorData = NULL;
     if (sensorRepo.getSensorData(currentSensorData) == DATA_FETCH_SUCCESS && currentSensorData != NULL)
     {
         uint8_t currentWaterLevel = currentSensorData->waterLevel;
         uint64_t currentSequenceNumber = currentSensorData->sequenceNumber;
         free(currentSensorData);
+
+        // ── PRIMING TIME TRACKING (runs in ALL modes) ──
+        // Records the timestamp of first water level rise (≥2%)
+        // for priming period measurement during calibration
+        if (!primingTimeRecorded && currentWaterLevel >= pumpStartWaterLevel + 2)
+        {
+            firstRiseTimestamp = esp_timer_get_time();
+            primingTimeRecorded = true;
+            float measuredPT = (float)(firstRiseTimestamp / 1000 - pumpStartTimeMs) / 1000.0f;
+            ESP_LOGI(TAG, "=== PRIMING COMPLETE ===");
+            ESP_LOGI(TAG, "  Time to first rise: %.1f seconds", measuredPT);
+            ESP_LOGI(TAG, "  Start level: %d%%, Current level: %d%%", pumpStartWaterLevel, currentWaterLevel);
+        }
+
+        // ── STALL DETECTION (normal mode only) ──
+        if (isRecalibrationModeActive)
+        {
+            return;
+        }
 
         // Update EMA
         ema_water_level = (EMA_ALPHA * currentWaterLevel) + ((1 - EMA_ALPHA) * ema_water_level);
@@ -334,6 +350,12 @@ void PumpController::processStallDetection()
                 ESP_LOGI(TAG, "Stall Detection: Water rising during GRACE_PERIOD!");
                 ESP_LOGI(TAG, "  EMA Level: %.1f%% >= %d%% + 2%% threshold", ema_water_level, pumpStartWaterLevel);
                 ESP_LOGI(TAG, "  Transitioning to MONITORING (early exit)");
+
+                if (!primingTimeRecorded)
+                {
+                    firstRiseTimestamp = esp_timer_get_time();
+                    primingTimeRecorded = true;
+                }
 
                 monitoringState = MONITORING;
                 lastLevelChangeTimestamp = esp_timer_get_time();
@@ -676,14 +698,39 @@ void PumpController::turnWaterPumpOn(uint64_t currentTimestamp, PumpStartReason 
             ESP_LOGI(TAG, "  Stall detection: ENABLED");
             ESP_LOGI(TAG, "  SPPR calculation: ENABLED (adaptive Kalman filter)");
             
-            // Initialize monitoring state based on water level
+            // Load priming period from NVS
+            float primingPeriodSeconds = 0.0f;
+            nvsManager.getPrimingPeriodSeconds(primingPeriodSeconds);
+            
+            float effectivePriming = primingPeriodSeconds * (CONFIG_PUMP_PRIMING_SAFETY_MULTIPLIER / 10.0f);
+            
+            float protectedWindow;
             if (pumpStartWaterLevel == 0)
             {
+                protectedWindow = effectivePriming + CONFIG_PUMP_STALL_GRACE_PERIOD_SEC;
+            }
+            else
+            {
+                protectedWindow = effectivePriming;
+            }
+
+            // Clamp total window to safety ceiling
+            if (protectedWindow > CONFIG_PUMP_MAX_PROTECTED_WINDOW_SEC)
+            {
+                protectedWindow = CONFIG_PUMP_MAX_PROTECTED_WINDOW_SEC;
+            }
+
+            firstRiseTimestamp = 0;
+            primingTimeRecorded = false;
+
+            // Set grace period end timestamp based on protected window
+            if (pumpStartWaterLevel == 0 || effectivePriming > 0.0f)
+            {
                 monitoringState = GRACE_PERIOD;
-                gracePeriodEndTimestamp = esp_timer_get_time() + (CONFIG_PUMP_STALL_GRACE_PERIOD_SEC * 1000000LL);
+                gracePeriodEndTimestamp = esp_timer_get_time() + (int64_t)(protectedWindow * 1000000.0f);
                 ema_water_level = 0.0f;
                 previous_ema_water_level = 0.0f;
-                ESP_LOGI(TAG, "  Monitoring: GRACE_PERIOD (%d seconds)", CONFIG_PUMP_STALL_GRACE_PERIOD_SEC);
+                ESP_LOGI(TAG, "  Monitoring: GRACE_PERIOD / Protected Window (%.1f seconds)", protectedWindow);
             }
             else
             {
@@ -1140,6 +1187,55 @@ void PumpController::turnWaterPumpOff(uint64_t currentTimestamp, PumpStopReason 
             else
             {
                 ESP_LOGW(TAG, "Kalman filter state NOT saved to NVS (stall detected)");
+            }
+
+            // ── PRIMING PERIOD UPDATE (calibration mode only) ──
+            if (wasInRecalibrationMode && primingTimeRecorded)
+            {
+                float measuredPrimingTime = (float)(firstRiseTimestamp / 1000 - pumpStartTimeMs) / 1000.0f;
+
+                if (measuredPrimingTime > 0.0f && measuredPrimingTime < 300.0f)
+                {
+                    ESP_LOGI(TAG, "=== PRIMING PERIOD CALIBRATION ===");
+                    ESP_LOGI(TAG, "  Measured Priming Time: %.1f seconds", measuredPrimingTime);
+
+                    if (nvsManager.setPrimingPeriodSeconds(measuredPrimingTime))
+                    {
+                        float effectiveGrace = measuredPrimingTime * (CONFIG_PUMP_PRIMING_SAFETY_MULTIPLIER / 10.0f);
+                        ESP_LOGI(TAG, "  Stored to NVS: %.1fs", measuredPrimingTime);
+                        ESP_LOGI(TAG, "  Effective priming window (x%.1f): %.0fs",
+                                 CONFIG_PUMP_PRIMING_SAFETY_MULTIPLIER / 10.0f, effectiveGrace);
+                    }
+                    else
+                    {
+                        ESP_LOGE(TAG, "  Failed to store priming period to NVS!");
+                    }
+                }
+                else
+                {
+                    ESP_LOGW(TAG, "Priming time (%.1fs) out of range, not stored", measuredPrimingTime);
+                }
+            }
+
+            // ── DIAGNOSTIC: Priming time deviation check (normal mode only) ──
+            if (!wasInRecalibrationMode && primingTimeRecorded)
+            {
+                float observedPrimingTime = (float)(firstRiseTimestamp / 1000 - pumpStartTimeMs) / 1000.0f;
+                float storedPrimingPeriod = 0.0f;
+                nvsManager.getPrimingPeriodSeconds(storedPrimingPeriod);
+
+                if (storedPrimingPeriod > 0.0f)
+                {
+                    float deviation = observedPrimingTime / storedPrimingPeriod;
+                    ESP_LOGI(TAG, "Priming Diagnostic: observed=%.1fs, stored=%.1fs, ratio=%.2f",
+                             observedPrimingTime, storedPrimingPeriod, deviation);
+
+                    if (deviation > 1.2f)
+                    {
+                        ESP_LOGW(TAG, "  WARN: Priming degradation detected! Observed %.1fs is %.0f%% of stored %.1fs",
+                                 observedPrimingTime, deviation * 100.0f, storedPrimingPeriod);
+                    }
+                }
             }
 
             // Create and populate the metadata struct
@@ -1636,20 +1732,42 @@ void PumpController::syncPumpOnState(uint64_t currentTimestamp, PumpStartReason 
     consecutiveNoWaterRiseChecks = 0;
     fast_check_start_level = 0.0f;
 
+    float primingPeriodSeconds = 0.0f;
+    nvsManager.getPrimingPeriodSeconds(primingPeriodSeconds);
+    float effectivePriming = primingPeriodSeconds * (CONFIG_PUMP_PRIMING_SAFETY_MULTIPLIER / 10.0f);
+
+    float protectedWindow;
     if (pumpStartWaterLevel == 0)
     {
+        protectedWindow = effectivePriming + CONFIG_PUMP_STALL_GRACE_PERIOD_SEC;
+    }
+    else
+    {
+        protectedWindow = effectivePriming;
+    }
+
+    if (protectedWindow > CONFIG_PUMP_MAX_PROTECTED_WINDOW_SEC)
+    {
+        protectedWindow = CONFIG_PUMP_MAX_PROTECTED_WINDOW_SEC;
+    }
+
+    firstRiseTimestamp = 0;
+    primingTimeRecorded = false;
+
+    if (pumpStartWaterLevel == 0 || effectivePriming > 0.0f)
+    {
         monitoringState = GRACE_PERIOD;
-        gracePeriodEndTimestamp = esp_timer_get_time() + (CONFIG_PUMP_STALL_GRACE_PERIOD_SEC * 1000000LL);
+        gracePeriodEndTimestamp = esp_timer_get_time() + (int64_t)(protectedWindow * 1000000.0f);
         ema_water_level = 0.0f;
         previous_ema_water_level = 0.0f;
-        ESP_LOGI(TAG, "Sync: Pump starting in GRACE_PERIOD for %d seconds.", CONFIG_PUMP_STALL_GRACE_PERIOD_SEC);
+        ESP_LOGI(TAG, "Sync: Pump starting in GRACE_PERIOD for %.1f seconds.", protectedWindow);
     }
     else
     {
         monitoringState = MONITORING;
         ema_water_level = pumpStartWaterLevel;
         previous_ema_water_level = pumpStartWaterLevel;
-        ESP_LOGI(TAG, "Sync: Pump starting in normal MONITORING mode.");
+        ESP_LOGI(TAG, "Sync: Pump starting in MONITORING mode (level=%d%%).", pumpStartWaterLevel);
     }
 
     // Initialize Kalman filter state

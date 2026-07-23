@@ -17,6 +17,14 @@
 #include "cJSON.h"
 #include "sdkconfig.h"
 
+#ifndef CONFIG_PUMP_PRIMING_SAFETY_MULTIPLIER
+#define CONFIG_PUMP_PRIMING_SAFETY_MULTIPLIER 15
+#endif
+
+#ifndef CONFIG_PUMP_MAX_PROTECTED_WINDOW_SEC
+#define CONFIG_PUMP_MAX_PROTECTED_WINDOW_SEC 240
+#endif
+
 // Forward declaration if MQTTManager is only used for a callback type
 // class MQTT5Manager; // Or include MQTTManager.h if methods are called
 
@@ -216,6 +224,8 @@ private:
     uint64_t stallCheckSequenceNumbers[3];
     uint64_t initialStallCheckSeqNum;
     uint8_t stallCheckReadingsCount;
+    int64_t firstRiseTimestamp;
+    bool primingTimeRecorded;
 
     // EMA smoothing variables for water level
     float ema_water_level;

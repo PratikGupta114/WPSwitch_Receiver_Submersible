@@ -515,6 +515,25 @@ menu "WPSwitch Receiver Configuration"
             default 60
             help
                 A grace period at the start of a pump cycle (if starting at 0% water level) where stall checks are paused to allow the water level to rise out of the sensor's dead zone.
+
+        config PUMP_PRIMING_SAFETY_MULTIPLIER
+            int "Priming Period Safety Multiplier (x10)"
+            range 10 30
+            default 15
+            help
+                Multiplier applied to the calibrated priming period to compute
+                the effective priming window. Value is divided by 10 at runtime.
+                Example: 15 = 1.5x, 20 = 2.0x.
+
+        config PUMP_MAX_PROTECTED_WINDOW_SEC
+            int "Maximum Protected Window (seconds)"
+            range 60 600
+            default 240
+            help
+                Hard safety ceiling for the total protected window
+                (priming period + grace period). Prevents indefinite dry
+                running even with a miscalibrated priming period.
+                Worst-case dry-run time = this value + 45s (confirmation).
     endmenu
 
     menu "WiFi Configuration"
